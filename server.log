@@ -1,0 +1,15 @@
+
+> peklaju-official@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.1 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.0.2:3000
+
+✓ Starting...
+✓ Ready in 1149ms
+○ Compiling / ...
+ GET / 200 in 5.3s (compile: 4.6s, render: 695ms)
+ GET /grid.svg 404 in 1033ms (compile: 782ms, render: 251ms)
+ GET /about 200 in 617ms (compile: 512ms, render: 105ms)
+ GET /privacy-policy 200 in 731ms (compile: 580ms, render: 152ms)
