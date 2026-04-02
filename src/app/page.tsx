@@ -37,8 +37,8 @@ export default function Home() {
       {/* Product Showcase */}
       <section id="products" className="container mx-auto px-4 py-16">
         <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold text-slate-800 mb-4">Core Products</h2>
-          <p className="text-slate-500 max-w-2xl mx-auto">
+          <h2 className="text-3xl font-bold text-slate-100 mb-4">Core Products</h2>
+          <p className="text-slate-400 max-w-2xl mx-auto">
             High-grade materials suitable for e-commerce, logistics, and industrial use.
             Bulk pricing available.
           </p>
@@ -52,28 +52,28 @@ export default function Home() {
       </section>
 
       {/* Trust Indicators */}
-      <section className="bg-white py-16 border-y border-slate-100">
+      <section className="bg-slate-900 py-16 border-y border-slate-800">
         <div className="container mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
           <div className="p-6">
-            <div className="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="w-12 h-12 bg-cyan-900/30 text-cyan-400 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
             </div>
-            <h3 className="text-lg font-bold mb-2">Premium Quality</h3>
-            <p className="text-slate-500 text-sm">Industrial grade materials ensuring maximum protection.</p>
+            <h3 className="text-lg font-bold mb-2 text-white">Premium Quality</h3>
+            <p className="text-slate-400 text-sm">Industrial grade materials ensuring maximum protection.</p>
           </div>
           <div className="p-6">
-            <div className="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="w-12 h-12 bg-cyan-900/30 text-cyan-400 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
             </div>
-            <h3 className="text-lg font-bold mb-2">Factory Direct</h3>
-            <p className="text-slate-500 text-sm">Best prices in the market, tiered for your volume.</p>
+            <h3 className="text-lg font-bold mb-2 text-white">Factory Direct</h3>
+            <p className="text-slate-400 text-sm">Best prices in the market, tiered for your volume.</p>
           </div>
           <div className="p-6">
-            <div className="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="w-12 h-12 bg-cyan-900/30 text-cyan-400 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
             </div>
-            <h3 className="text-lg font-bold mb-2">Fast Delivery</h3>
-            <p className="text-slate-500 text-sm">Quick turnaround for local businesses in Perak & beyond.</p>
+            <h3 className="text-lg font-bold mb-2 text-white">Fast Delivery</h3>
+            <p className="text-slate-400 text-sm">Quick turnaround for local businesses in Perak & beyond.</p>
           </div>
         </div>
       </section>
