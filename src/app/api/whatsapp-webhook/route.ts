@@ -1,11 +1,11 @@
 /**
- * Pek Laju WhatsApp Sales Agent — v3 (With Conversation Memory)
+ * Pek Laju WhatsApp Sales Agent — v4 (DB-Driven Pricing)
  *
- * Key upgrades:
- *  - Stores chat history in Supabase `messages` table
- *  - Passes last 10 messages to Gemini as full conversation context
- *  - Proactive closing: always ends with a CTA (address / confirm)
- *  - Uses Gemini system_instruction (not injected into user turn)
+ * Changes from v3:
+ *  - Pricing loaded dynamically from Supabase `products` + `price_tiers` tables
+ *  - buildSystemInstruction() accepts a pre-formatted pricingBlock string
+ *  - fetchPricingFromDB() + formatPricingBlock() handle DB → prompt conversion
+ *  - All v3 features retained: conversation history, AUTO_ORDER, VIP detection
  */
 
 import { NextResponse } from 'next/server';
@@ -38,8 +38,23 @@ interface MessageRow {
   content: string;
 }
 
+interface PriceTier {
+  min_qty:    number;
+  max_qty:    number | null;
+  unit_price: number;
+}
+
+interface ProductWithTiers {
+  id:          number;
+  sku:         string;
+  name:        string;
+  description: string | null;
+  unit:        string;
+  price_tiers: PriceTier[];
+}
+
 // ─────────────────────────────────────────────────────────────────
-// Supabase (service role singleton)
+// Supabase singleton (service role — bypasses RLS)
 // ─────────────────────────────────────────────────────────────────
 let _sb: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient | null {
@@ -84,7 +99,7 @@ async function fetchOrCreateCustomer(
   };
 }
 
-/** 拉取该客户最近 N 条消息（按时间升序，用于 Gemini history） */
+/** 拉取该客户最近 N 条消息（升序返回，用于 Gemini history） */
 async function fetchHistory(sb: SupabaseClient, waId: string, limit = 10): Promise<MessageRow[]> {
   const { data } = await sb
     .from('messages')
@@ -93,7 +108,7 @@ async function fetchHistory(sb: SupabaseClient, waId: string, limit = 10): Promi
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  return ((data ?? []) as MessageRow[]).reverse(); // 升序返回
+  return ((data ?? []) as MessageRow[]).reverse();
 }
 
 /** 保存一条消息 */
@@ -101,6 +116,80 @@ async function saveMessage(
   sb: SupabaseClient, waId: string, role: 'user' | 'model', content: string,
 ): Promise<void> {
   await sb.from('messages').insert({ wa_id: waId, role, content });
+}
+
+/**
+ * 从数据库获取所有启用产品及其阶梯价格。
+ * 若 DB 不可用或无数据，返回空数组（调用方会降级到静态提示）。
+ */
+async function fetchPricingFromDB(sb: SupabaseClient): Promise<ProductWithTiers[]> {
+  const { data: products, error: pErr } = await sb
+    .from('products')
+    .select('id, sku, name, description, unit')
+    .eq('is_active', true)
+    .order('id');
+
+  if (pErr || !products?.length) {
+    if (pErr) console.error('[DB] 产品加载失败:', pErr.message);
+    return [];
+  }
+
+  const productIds = products.map((p: { id: number }) => p.id);
+  const { data: tiers, error: tErr } = await sb
+    .from('price_tiers')
+    .select('product_id, min_qty, max_qty, unit_price')
+    .in('product_id', productIds)
+    .order('product_id')
+    .order('min_qty');
+
+  if (tErr) console.error('[DB] 价格阶梯加载失败:', tErr.message);
+
+  const tierMap = new Map<number, PriceTier[]>();
+  for (const t of (tiers ?? []) as Array<{ product_id: number } & PriceTier>) {
+    if (!tierMap.has(t.product_id)) tierMap.set(t.product_id, []);
+    tierMap.get(t.product_id)!.push({
+      min_qty:    t.min_qty,
+      max_qty:    t.max_qty,
+      unit_price: t.unit_price,
+    });
+  }
+
+  return products.map((p: { id: number; sku: string; name: string; description: string | null; unit: string }) => ({
+    ...p,
+    price_tiers: tierMap.get(p.id) ?? [],
+  }));
+}
+
+/**
+ * 将产品+阶梯价格格式化为 system prompt 可用的文本块。
+ *
+ * 输出示例：
+ * 【黑色拉伸膜 Black Stretch Film】(2.2KG/箱，6卷/箱)
+ *   1–9箱: RM 120.00/箱 | 10–19箱: RM 117.00/箱 | 20–50箱: RM 114.00/箱
+ */
+function formatPricingBlock(products: ProductWithTiers[]): string {
+  if (!products.length) {
+    return '（产品价格数据暂时无法加载，请告知客户稍后确认）';
+  }
+
+  return products.map((p) => {
+    const header = p.description
+      ? `【${p.name}】（${p.description}）`
+      : `【${p.name}】`;
+
+    if (!p.price_tiers.length) return `${header}\n  （暂无报价）`;
+
+    const tiers = p.price_tiers
+      .map((t) => {
+        const range = t.max_qty != null
+          ? `${t.min_qty}–${t.max_qty}${p.unit}`
+          : `≥${t.min_qty}${p.unit}`;
+        return `${range}: RM ${Number(t.unit_price).toFixed(2)}/${p.unit}`;
+      })
+      .join(' | ');
+
+    return `${header}\n  ${tiers}`;
+  }).join('\n\n');
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -139,9 +228,14 @@ function parseAutoOrder(raw: string): { order: AutoOrder | null; cleanText: stri
 }
 
 // ─────────────────────────────────────────────────────────────────
-// System Prompt (用作 Gemini system_instruction)
+// System Instruction builder (pricing injected dynamically)
 // ─────────────────────────────────────────────────────────────────
-function buildSystemInstruction(customerName: string, isNew: boolean, totalSpent: number): string {
+function buildSystemInstruction(
+  customerName: string,
+  isNew: boolean,
+  totalSpent: number,
+  pricingBlock: string,
+): string {
   const customerStatus = isNew
     ? '新客户（第一次联系，主动欢迎）'
     : totalSpent >= 5000
@@ -152,17 +246,10 @@ function buildSystemInstruction(customerName: string, isNew: boolean, totalSpent
 客户：${customerName}（${customerStatus}）
 
 ═══════════════════════════════════════════
-📦 2026年4月 官方报价（严禁编造、不可更改）
+📦 官方报价单（严禁编造、不可更改）
 ═══════════════════════════════════════════
-拉伸膜 Stretch Film (2.2KG/箱，6卷/箱) — 透明/黑色同价：
-  1–9箱    RM 120/箱  |  10–19箱  RM 117/箱  |  20–50箱  RM 114/箱
+${pricingBlock}
 
-气泡膜 Bubble Wrap (1M×100M/卷)：
-  单层透明：1–81卷 RM 54 | ≥82卷 RM 47
-  单层黑色：1–81卷 RM 64 | ≥82卷 RM 54
-  双层黑色：1–81卷 RM 95 | ≥82卷 RM 87
-
-快递袋 Courier Bag 17×30 黑色 (100pcs/卷)：RM 2.80/卷
 运费：太平(Taiping)区内送货免运费，区外另计
 
 ═══════════════════════════════════════════
@@ -229,7 +316,7 @@ export async function POST(request: Request) {
     const change  = body.entry?.[0]?.changes?.[0]?.value;
     const message = change?.messages?.[0];
 
-    // 忽略状态回调 & 非文本
+    // 忽略状态回调 & 非文本消息
     if (!message || message.type !== 'text') {
       return NextResponse.json({ status: 'ok' });
     }
@@ -250,39 +337,46 @@ export async function POST(request: Request) {
 
     console.log(`[MSG] ${from} (${waName}): "${text}"`);
 
-    // ① 蓝勾（并行）
+    // ① 蓝勾（并行，不阻断主流程）
     markRead(phoneId, token, messageId);
 
-    // ② Supabase — 客户 + 对话历史
+    // ② Supabase — 并行获取：客户资料 + 对话历史 + 产品报价
     const sb = getSupabase();
-    let isNew      = false;
-    let totalSpent = 0;
-    let history: MessageRow[] = [];
+    let isNew        = false;
+    let totalSpent   = 0;
+    let history: MessageRow[]        = [];
+    let pricingBlock = '（产品报价加载失败，请联系 Max Boss 确认）';
 
     if (sb) {
-      const [custResult, hist] = await Promise.all([
+      const [custResult, hist, products] = await Promise.all([
         fetchOrCreateCustomer(sb, from, waName),
         fetchHistory(sb, from, 10),
+        fetchPricingFromDB(sb),
       ]);
-      isNew      = custResult.isNew;
-      totalSpent = custResult.customer.total_spent ?? 0;
-      history    = hist;
-      console.log(`[DB] ${from} | 新:${isNew} | RM${totalSpent} | 历史:${history.length}条`);
 
-      // 保存这条用户消息
+      isNew        = custResult.isNew;
+      totalSpent   = custResult.customer.total_spent ?? 0;
+      history      = hist;
+      pricingBlock = formatPricingBlock(products);
+
+      console.log(
+        `[DB] ${from} | 新:${isNew} | RM${totalSpent} | ` +
+        `历史:${history.length}条 | 产品:${products.length}款`,
+      );
+
+      // 保存用户消息
       await saveMessage(sb, from, 'user', text);
     }
 
-    // ③ Gemini (带完整对话历史)
+    // ③ Gemini AI（带完整对话历史 + 动态报价）
     let replyText               = '';
     let autoOrder: AutoOrder | null = null;
 
     if (!geminiKey) {
       replyText = '您好 Boss！系统维护中，请稍后联系。Pek Laju 感谢您！';
     } else {
-      const systemInstruction = buildSystemInstruction(waName, isNew, totalSpent);
+      const systemInstruction = buildSystemInstruction(waName, isNew, totalSpent, pricingBlock);
 
-      // 构建 Gemini contents（历史 + 当前消息）
       type GeminiPart    = { text: string };
       type GeminiContent = { role: 'user' | 'model'; parts: GeminiPart[] };
       const contents: GeminiContent[] = [
@@ -324,12 +418,12 @@ export async function POST(request: Request) {
     await sendWhatsApp(phoneId, token, from, replyText);
     console.log(`[WA] 已回复 ${from}: "${replyText.substring(0, 120)}"`);
 
-    // ⑤ 保存 AI 回复到历史（去掉已剥离的 [AUTO_ORDER] 标记后的干净文本）
+    // ⑤ 保存 AI 回复到历史
     if (sb) {
       await saveMessage(sb, from, 'model', replyText);
     }
 
-    // ⑥ 写入订单
+    // ⑥ 写入订单（若 AI 检测到购买意图）
     if (sb && autoOrder) {
       const { error } = await sb.from('orders').insert({
         customer_id: from,
@@ -346,6 +440,7 @@ export async function POST(request: Request) {
 
   } catch (err) {
     console.error('[Webhook] 未捕获异常:', err);
+    // 永远返回 200，避免 WhatsApp 重复推送
     return NextResponse.json({ status: 'error_handled' }, { status: 200 });
   }
 }
