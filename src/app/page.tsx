@@ -1,13 +1,88 @@
-import { products } from "@/data/products";
-import ProductCard from "@/components/ProductCard";
+import { createClient } from '@supabase/supabase-js';
+import ProductCard, { ProductCardProps } from '@/components/ProductCard';
 
-export default function Home() {
+// ─── Types mirroring DB schema ────────────────────────────────────────────────
+interface DbPriceTier {
+  product_id: number;
+  min_qty:    number;
+  max_qty:    number | null;
+  unit_price: number;
+}
+
+interface DbProduct {
+  id:          number;
+  sku:         string;
+  name:        string;
+  category:    string;
+  description: string | null;
+  unit:        string;
+}
+
+// ─── Server-side Supabase (anon key — read-only, no RLS needed for public data) 
+function getPublicSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
+// ─── Format tier label e.g. "1–9 box" / "≥82 roll" ──────────────────────────
+function formatTierQty(min: number, max: number | null, unit: string): string {
+  if (max === null) return `≥${min} ${unit}`;
+  if (min === max)  return `${min} ${unit}`;
+  return `${min}–${max} ${unit}`;
+}
+
+// ─── Fetch + transform from Supabase ─────────────────────────────────────────
+async function fetchProducts(): Promise<ProductCardProps[]> {
+  const sb = getPublicSupabase();
+  if (!sb) {
+    console.warn('[Page] Supabase public env vars not configured');
+    return [];
+  }
+
+  const [{ data: products, error: pErr }, { data: tiers, error: tErr }] =
+    await Promise.all([
+      sb.from('products').select('id,sku,name,category,description,unit')
+        .eq('is_active', true).order('id'),
+      sb.from('price_tiers').select('product_id,min_qty,max_qty,unit_price')
+        .order('product_id').order('min_qty'),
+    ]);
+
+  if (pErr) console.error('[Page] products fetch error:', pErr.message);
+  if (tErr) console.error('[Page] price_tiers fetch error:', tErr.message);
+  if (!products?.length) return [];
+
+  // Group tiers by product_id
+  const tierMap = new Map<number, DbPriceTier[]>();
+  for (const t of (tiers ?? []) as DbPriceTier[]) {
+    if (!tierMap.has(t.product_id)) tierMap.set(t.product_id, []);
+    tierMap.get(t.product_id)!.push(t);
+  }
+
+  // Map to ProductCardProps
+  return (products as DbProduct[]).map((p) => ({
+    sku:         p.sku,
+    name:        p.name,
+    category:    p.category,
+    description: p.description,
+    tiers: (tierMap.get(p.id) ?? []).map((t) => ({
+      qty:   formatTierQty(t.min_qty, t.max_qty, p.unit),
+      price: Number(t.unit_price).toFixed(2),
+    })),
+  }));
+}
+
+// ─── Page (Server Component — no "use client" needed) ────────────────────────
+export default async function Home() {
+  const productCards = await fetchProducts();
+
   return (
     <div className="pb-20">
       {/* Hero Section */}
       <section className="relative bg-slate-900 text-white py-24 md:py-32 px-4 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900 opacity-90"></div>
-        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900 opacity-90" />
+        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10" />
 
         <div className="container mx-auto relative z-10 text-center max-w-4xl">
           <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight mb-6">
@@ -15,7 +90,7 @@ export default function Home() {
           </h1>
           <p className="text-xl md:text-2xl text-slate-300 mb-10 font-light">
             Quality Packaging Solutions for Business. <br />
-            <span className="font-medium text-white">Factory Direct Bubble Wrap & Stretch Film.</span>
+            <span className="font-medium text-white">Factory Direct Bubble Wrap &amp; Stretch Film.</span>
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <a
@@ -44,11 +119,17 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {products.map((product) => (
-            <ProductCard key={product.sku} product={product} />
-          ))}
-        </div>
+        {productCards.length === 0 ? (
+          <p className="text-center text-slate-400 py-12">
+            Products loading... please check back shortly.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {productCards.map((p) => (
+              <ProductCard key={p.sku} {...p} />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Trust Indicators */}
@@ -56,24 +137,31 @@ export default function Home() {
         <div className="container mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
           <div className="p-6">
             <div className="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
             </div>
             <h3 className="text-lg font-bold mb-2">Premium Quality</h3>
             <p className="text-slate-500 text-sm">Industrial grade materials ensuring maximum protection.</p>
           </div>
           <div className="p-6">
             <div className="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+              </svg>
             </div>
             <h3 className="text-lg font-bold mb-2">Factory Direct</h3>
             <p className="text-slate-500 text-sm">Best prices in the market, tiered for your volume.</p>
           </div>
           <div className="p-6">
             <div className="w-12 h-12 bg-cyan-100 text-cyan-600 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
             </div>
             <h3 className="text-lg font-bold mb-2">Fast Delivery</h3>
-            <p className="text-slate-500 text-sm">Quick turnaround for local businesses in Perak & beyond.</p>
+            <p className="text-slate-500 text-sm">Quick turnaround for local businesses in Perak &amp; beyond.</p>
           </div>
         </div>
       </section>
