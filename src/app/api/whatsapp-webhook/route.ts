@@ -216,14 +216,32 @@ async function sendWhatsApp(phoneId: string, token: string, to: string, text: st
 // Parse [AUTO_ORDER: {...}]
 // ─────────────────────────────────────────────────────────────────
 function parseAutoOrder(raw: string): { order: AutoOrder | null; cleanText: string } {
-  const match = raw.match(/\[AUTO_ORDER:\s*(\{[\s\S]*?\})\]/);
-  if (!match) return { order: null, cleanText: raw.trim() };
+  const markerIdx = raw.indexOf('[AUTO_ORDER:');
+  if (markerIdx === -1) return { order: null, cleanText: raw.trim() };
+
+  // 截断标记之后所有内容，确保哪怕出错了也绝不发送给客户
+  const cleanText = raw.substring(0, markerIdx).trim();
+  let jsonStr = raw.substring(markerIdx + 12).trim();
+  
+  if (jsonStr.endsWith(']')) {
+    jsonStr = jsonStr.substring(0, jsonStr.length - 1).trim();
+  } else {
+    const lastBracketIdx = jsonStr.lastIndexOf(']');
+    if (lastBracketIdx !== -1) {
+       jsonStr = jsonStr.substring(0, lastBracketIdx).trim();
+    }
+  }
+
+  // 过滤可能的 markdown code block
+  jsonStr = jsonStr.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
 
   let order: AutoOrder | null = null;
-  try { order = JSON.parse(match[1]) as AutoOrder; }
-  catch (e) { console.warn('[Order] JSON 解析失败:', match[1], e); }
+  try { 
+    order = JSON.parse(jsonStr) as AutoOrder; 
+  } catch (e) { 
+    console.warn('[Order] JSON 解析失败:', jsonStr, e); 
+  }
 
-  const cleanText = raw.replace(/\[AUTO_ORDER:\s*\{[\s\S]*?\}\]/, '').trim();
   return { order, cleanText };
 }
 
@@ -276,8 +294,8 @@ ${pricingBlock}
 ═══════════════════════════════════════════
 🚨 订单生成格式
 ═══════════════════════════════════════════
-格式（回复文字后空两行，整个 JSON 必须放在一行）：
-[AUTO_ORDER: {"items":[{"product":"<产品名>","qty":<数量>,"unit_price":<强制结算单价>,"subtotal":<小计>}],"total_price":<总价>,"notes":"<送货具体地址>"}]
+格式（回复文字后空两行，整个 JSON 必须放在一行，且保证括号完整）：
+[AUTO_ORDER: {"items":[{"product":"<你必须提取客户刚才要求的准确名字（如 bubblewrap），绝不能瞎编或默认填 Stretch Film！>","qty":<数量>,"unit_price":<强制结算单价>,"subtotal":<小计>}],"total_price":<总价>,"notes":"<送货具体地址>"}]
 
 ⚠️ 若你还没问出地址或还没讲好订单总价，不要输出这行！`;
 }
