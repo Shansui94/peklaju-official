@@ -23,8 +23,9 @@ interface Order {
 
 // ─── Supabase (service role — server only) ────────────────────────────────────
 function getAdminSb() {
-  const url = process.env.SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
@@ -35,6 +36,7 @@ async function confirmOrder(formData: FormData) {
   'use server';
   const orderId = formData.get('orderId') as string;
   const sb = getAdminSb();
+  if (!sb) { console.error('[Admin] Supabase not configured'); return; }
 
   const { error } = await sb
     .from('orders')
@@ -54,24 +56,32 @@ async function rejectOrder(formData: FormData) {
   'use server';
   const orderId = formData.get('orderId') as string;
   const sb = getAdminSb();
+  if (!sb) { console.error('[Admin] Supabase not configured'); return; }
   await sb.from('orders').update({ status: 'cancelled' }).eq('id', orderId);
   revalidatePath('/admin/orders');
 }
 
 // ─── Data Fetch ───────────────────────────────────────────────────────────────
 async function fetchPendingOrders(): Promise<Order[]> {
-  const sb = getAdminSb();
-  const { data, error } = await sb
-    .from('orders')
-    .select('id, customer_id, items, total_price, status, notes, created_at')
-    .eq('status', 'pending_approval')
-    .order('created_at', { ascending: false });
+  try {
+    const sb = getAdminSb();
+    if (!sb) return [];
 
-  if (error) {
-    console.error('[Admin] fetchPendingOrders failed:', error.message);
+    const { data, error } = await sb
+      .from('orders')
+      .select('id, customer_id, items, total_price, status, notes, created_at')
+      .eq('status', 'pending_approval')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[Admin] fetchPendingOrders failed:', error.message);
+      return [];
+    }
+    return (data ?? []) as Order[];
+  } catch (err) {
+    console.error('[Admin] fetchPendingOrders crashed:', err);
     return [];
   }
-  return (data ?? []) as Order[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
