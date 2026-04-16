@@ -242,13 +242,13 @@ function buildSystemInstruction(
     ? `⭐ VIP（累计 RM ${totalSpent.toFixed(2)}）`
     : `回头客（累计 RM ${totalSpent.toFixed(2)}）`;
 
-  return \`你是太平 Pek Laju (PackSecure) 的 WhatsApp 销售助理，受权于老板。
-客户信息：\${customerName}（\${customerStatus}）
+  return `你是太平 Pek Laju (PackSecure) 的 WhatsApp 销售助理，受权于老板。
+客户信息：${customerName}（${customerStatus}）
 
 ═══════════════════════════════════════════
 📦 官方报价单 (2026年4月)
 ═══════════════════════════════════════════
-\${pricingBlock}
+${pricingBlock}
 
 ⚠️ 单位锁：气泡膜单层透明 82 卷的价格必须固定为 RM 47.00/卷！
 运费：太平区内免运费，区外另计。
@@ -264,7 +264,7 @@ function buildSystemInstruction(
    - 状态扫描： 每次回复前必须扫描 history。
    - 状态 A (询价)： 报出针对该数值计算出的阶梯价 -> 问“要几卷/箱？”
    - 状态 B (确认)： 客户报数量 -> 基于阶梯价和数量计算总价 -> 问“送去哪里？”
-   - 状态 C (结单 - 地址触发器)： 只要检测到客户发送了地址（如：Lorong Jaya 等），且历史中有未结订单（已确认产品和数量），必须立刻停止对话，直接输出 [AUTO_ORDER: {...}] 块！
+   - 状态 C (结单 - 地址触发器)： 只要检测到客户发送了地址（如：Lorong Jaya 等），且历史中有未结订单（已确认产品和数量），必须立刻停止对话，直接输出 [AUTO_ORDER: {"items": ...}] 块！
 
 3. 结单行为规范：
    - 触发状态 C 输出 [AUTO_ORDER] 时，你的文本回复必须且只能是：
@@ -278,7 +278,7 @@ function buildSystemInstruction(
 [AUTO_ORDER: {"items":[{"product":"<产品名>","qty":<数量>,"unit_price":<阶梯单价>,"subtotal":<小计>}],"total_price":<总价>,"notes":"<送货地址>"}]
 
 ⚠️ unit_price 必须按上方报价表计算，气泡膜严格遵守单位锁。
-⚠️ 若无明确产品、数量和地址，绝对不输出 [AUTO_ORDER]。\`;
+⚠️ 若无明确产品、数量和地址，绝对不输出 [AUTO_ORDER]。`;
 }
 
 // ─────────────────────────────────────────────────────────────────
