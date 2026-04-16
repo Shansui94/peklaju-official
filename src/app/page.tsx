@@ -18,13 +18,14 @@ interface DbProduct {
   unit:        string;
 }
 
-// ─── Server-side Supabase (anon key — read-only, no RLS needed for public data) 
-function getPublicSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// ─── Server-side Supabase (service role — safe in Server Component, never sent to client)
+function getServerSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
-  return createClient(url, key);
+  return createClient(url, key, { auth: { persistSession: false } });
 }
+
 
 // ─── Format tier label e.g. "1–9 box" / "≥82 roll" ──────────────────────────
 function formatTierQty(min: number, max: number | null, unit: string): string {
@@ -35,11 +36,12 @@ function formatTierQty(min: number, max: number | null, unit: string): string {
 
 // ─── Fetch + transform from Supabase ─────────────────────────────────────────
 async function fetchProducts(): Promise<ProductCardProps[]> {
-  const sb = getPublicSupabase();
-  if (!sb) {
-    console.warn('[Page] Supabase public env vars not configured');
-    return [];
-  }
+  try {
+    const sb = getServerSupabase();
+    if (!sb) {
+      console.warn('[Page] Supabase env vars not configured');
+      return [];
+    }
 
   const [{ data: products, error: pErr }, { data: tiers, error: tErr }] =
     await Promise.all([
@@ -61,16 +63,20 @@ async function fetchProducts(): Promise<ProductCardProps[]> {
   }
 
   // Map to ProductCardProps
-  return (products as DbProduct[]).map((p) => ({
-    sku:         p.sku,
-    name:        p.name,
-    category:    p.category,
-    description: p.description,
-    tiers: (tierMap.get(p.id) ?? []).map((t) => ({
-      qty:   formatTierQty(t.min_qty, t.max_qty, p.unit),
-      price: Number(t.unit_price).toFixed(2),
-    })),
-  }));
+    return (products as DbProduct[]).map((p) => ({
+      sku:         p.sku,
+      name:        p.name,
+      category:    p.category,
+      description: p.description,
+      tiers: (tierMap.get(p.id) ?? []).map((t) => ({
+        qty:   formatTierQty(t.min_qty, t.max_qty, p.unit),
+        price: Number(t.unit_price).toFixed(2),
+      })),
+    }));
+  } catch (err) {
+    console.error('[Page] fetchProducts unexpected error:', err);
+    return [];
+  }
 }
 
 // ─── Page (Server Component — no "use client" needed) ────────────────────────
