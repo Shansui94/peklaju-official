@@ -297,7 +297,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   if (
     searchParams.get('hub.mode') === 'subscribe' &&
-    searchParams.get('hub.verify_token') === 'peklaju_2026_webhook'
+    searchParams.get('hub.verify_token') === (process.env.WHATSAPP_VERIFY_TOKEN ?? 'peklaju_2026_webhook')
   ) {
     return new NextResponse(searchParams.get('hub.challenge'), {
       status: 200,
