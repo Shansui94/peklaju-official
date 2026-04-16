@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { createClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
+import { generateInvoicePDF } from '@/lib/generate-invoice';
+import { uploadAndSendInvoice } from '@/lib/whatsapp-media';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface OrderItem {
@@ -31,25 +33,47 @@ function getAdminSb() {
 
 // ─── Server Actions ───────────────────────────────────────────────────────────
 
-/** 确认订单：status → 'confirmed'（同时触发 DB trigger 累加 total_spent） */
+/** 确认订单：生成发票 PDF → 发给客户 WhatsApp → 更新状态 'confirmed' */
 async function confirmOrder(formData: FormData) {
   'use server';
   const orderId = formData.get('orderId') as string;
   const sb = getAdminSb();
   if (!sb) { console.error('[Admin] Supabase not configured'); return; }
 
+  // 1. 取完整订单数据
+  const { data: order, error: fetchErr } = await sb
+    .from('orders')
+    .select('id, customer_id, items, total_price, notes, created_at')
+    .eq('id', orderId)
+    .single();
+
+  if (fetchErr || !order) {
+    console.error('[Admin] 无法取得订单:', fetchErr?.message);
+  } else {
+    try {
+      // 2. 生成 PDF
+      const invoiceNo  = `INV-${String(order.id).padStart(5, '0')}`;
+      const pdfBuffer  = await generateInvoicePDF(order);
+
+      // 3. 上传 + 发送给客户 WhatsApp
+      await uploadAndSendInvoice(pdfBuffer, order.customer_id, invoiceNo);
+    } catch (err) {
+      // 发票失败不阻断确认流程
+      console.error('[Admin] 发票生成/发送失败:', err);
+    }
+  }
+
+  // 4. 更新订单状态
   const { error } = await sb
     .from('orders')
     .update({ status: 'confirmed' })
     .eq('id', orderId);
 
-  if (error) console.error('[Admin] confirmOrder failed:', error.message);
-
-  // ── 预留发票生成接口（下一步实现）────────────────────────────────────────
-  // await generateAndSendInvoice(orderId);
+  if (error) console.error('[Admin] 更新状态失败:', error.message);
 
   revalidatePath('/admin/orders');
 }
+
 
 /** 拒绝订单：status → 'cancelled' */
 async function rejectOrder(formData: FormData) {
