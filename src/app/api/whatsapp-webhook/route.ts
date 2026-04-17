@@ -220,7 +220,7 @@ function parseAutoOrder(raw: string): { order: AutoOrder | null; cleanText: stri
   if (markerIdx === -1) return { order: null, cleanText: raw.trim() };
 
   // 截断标记之后所有内容，确保哪怕出错了也绝不发送给客户
-  const cleanText = raw.substring(0, markerIdx).trim();
+  let cleanText = raw.substring(0, markerIdx).trim();
   let jsonStr = raw.substring(markerIdx + 12).trim();
   
   if (jsonStr.endsWith(']')) {
