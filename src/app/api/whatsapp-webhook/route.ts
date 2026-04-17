@@ -238,8 +238,25 @@ function parseAutoOrder(raw: string): { order: AutoOrder | null; cleanText: stri
   let order: AutoOrder | null = null;
   try { 
     order = JSON.parse(jsonStr) as AutoOrder; 
-  } catch (e) { 
+
+    // 自我修复校验：防止 AI 把 price 塞成 "RM 3854" 这样的字符串，导致 Supabase 数值列写入崩溃
+    if (order) {
+      if (typeof order.total_price === 'string') {
+        order.total_price = Number(String(order.total_price).replace(/[^\d.]/g, ''));
+      }
+      if (order.items && Array.isArray(order.items)) {
+        order.items = order.items.map(item => ({
+          ...item,
+          qty: typeof item.qty === 'string' ? Number(String(item.qty).replace(/[^\d.]/g, '')) : item.qty,
+          unit_price: typeof item.unit_price === 'string' ? Number(String(item.unit_price).replace(/[^\d.]/g, '')) : item.unit_price,
+          subtotal: typeof item.subtotal === 'string' ? Number(String(item.subtotal).replace(/[^\d.]/g, '')) : item.subtotal,
+        }));
+      }
+    }
+  } catch (e: any) { 
     console.warn('[Order] JSON 解析失败:', jsonStr, e); 
+    // 直接推给客户端方便调试
+    cleanText += `\n\n[系统报警] JSON 解析失败 (请截图给老板): ${e.message}\n截取内容: ${jsonStr.substring(0, 100)}`;
   }
 
   return { order, cleanText };
@@ -426,8 +443,12 @@ export async function POST(request: Request) {
         status:      'pending_approval',
         notes:       autoOrder.notes ?? null,
       });
-      if (error) console.error('[DB] 订单写入失败:', error.message);
-      else console.log(`[DB] ✅ 订单 RM${autoOrder.total_price} | ${autoOrder.items.length}项`);
+      if (error) {
+        console.error('[DB] 订单写入失败:', error.message);
+        await sendWhatsApp(phoneId, token, from, `\n[系统报警] 订单未能存入系统 (请截图给老板): ${error.message}`);
+      } else {
+        console.log(`[DB] ✅ 订单 RM${autoOrder.total_price} | ${autoOrder.items.length}项`);
+      }
     }
 
     return NextResponse.json({ status: 'ok' });
