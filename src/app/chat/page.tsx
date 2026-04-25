@@ -63,7 +63,17 @@ export default function WebChatPage() {
       // 选做：如果在网页里生成了订单，可以在这里给个额外的弹窗动画
       if (data.orderGenerated) {
         console.log("💰 网页端触发了下单！", data.orderData);
-        // 可以触发一个烟花特效或者气泡提示
+        setMessages(prev => [...prev, {
+          id: Date.now().toString() + '_debug',
+          role: 'ai',
+          text: `[系统调试] ✅ AI 成功调用了 create_order 工具！订单总价: RM${data.orderData.total_price}。如果后台没看到，说明数据库触发器把它吃掉了！`
+        }]);
+      } else if (aiMessage.text.includes('发给 Max 处理了') && !data.orderGenerated) {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString() + '_debug',
+          role: 'ai',
+          text: `[系统调试] 🚨 AI 幻觉警告：AI 输出了结单的话语，但它【没有】触发订单工具！`
+        }]);
       }
 
     } catch (error: any) {

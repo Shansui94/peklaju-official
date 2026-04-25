@@ -36,7 +36,10 @@ export function getSupabase(): SupabaseClient | null {
     console.warn('[DB] 环境变量未配置');
     return null;
   }
-  _sb = createClient(url, key, { auth: { persistSession: false } });
+  _sb = createClient(url, key, { 
+    auth: { persistSession: false },
+    global: { fetch: (url, options) => fetch(url, { ...options, cache: 'no-store' }) }
+  });
   return _sb;
 }
 
