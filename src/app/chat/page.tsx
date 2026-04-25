@@ -81,7 +81,7 @@ export default function WebChatPage() {
       setMessages(prev => [...prev, { 
         id: Date.now().toString(), 
         role: 'ai', 
-        text: '❌ 哎呀，网络开小差了，请重试！' 
+        text: `❌ 哎呀出错了: ${error.message}` 
       }]);
     } finally {
       setIsLoading(false);
