@@ -21,6 +21,7 @@ interface Order {
   status:      string;
   notes:       string | null;
   created_at:  string;
+  chat_history?: { role: string; content: string }[];
 }
 
 // ─── Supabase (service role — server only) ────────────────────────────────────
@@ -104,7 +105,24 @@ async function fetchPendingOrders(): Promise<Order[]> {
       console.error('[Admin] fetchPendingOrders failed:', error.message);
       return [];
     }
-    return (data ?? []) as Order[];
+
+    const orders = (data ?? []) as Order[];
+    
+    // Fetch last 6 messages for context
+    for (const order of orders) {
+      const { data: msgs } = await sb
+        .from('messages')
+        .select('role, content')
+        .eq('wa_id', order.customer_id)
+        .order('created_at', { ascending: false })
+        .limit(6);
+      
+      if (msgs && msgs.length > 0) {
+        order.chat_history = msgs.reverse();
+      }
+    }
+
+    return orders;
   } catch (err) {
     console.error('[Admin] fetchPendingOrders crashed:', err);
     return [];
@@ -272,6 +290,33 @@ export default async function OrdersPage() {
                 </div>
               </div>
             </div>
+
+            {/* Chat History Accordion */}
+            {order.chat_history && order.chat_history.length > 0 && (
+              <div className="border-t border-slate-800 bg-slate-800/20">
+                <details className="group">
+                  <summary className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-300 hover:bg-slate-800/40 transition-colors flex items-center justify-between outline-none">
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                      查看 AI 聊天记录 / View Chat Context ({order.chat_history.length} msgs)
+                    </span>
+                    <span className="group-open:rotate-180 transition-transform duration-200">▼</span>
+                  </summary>
+                  <div className="px-6 pb-6 pt-2 space-y-3">
+                    {order.chat_history.map((msg, idx) => (
+                      <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[85%] px-4 py-2 rounded-xl text-sm ${msg.role === 'user' ? 'bg-cyan-900/30 text-cyan-100 border border-cyan-800/50 rounded-tr-sm' : 'bg-slate-800 text-slate-300 border border-slate-700 rounded-tl-sm'}`}>
+                          <span className="text-[10px] uppercase font-bold opacity-50 block mb-1">
+                            {msg.role === 'user' ? 'Customer' : 'AI Agent'}
+                          </span>
+                          {msg.content}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            )}
           </div>
         ))}
       </div>
