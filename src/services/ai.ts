@@ -109,7 +109,20 @@ export async function chatWithAI(
   );
 
   const aiJson = await aiRes.json();
+  
+  if (!aiRes.ok) {
+    const errorMsg = aiJson.error?.message || JSON.stringify(aiJson);
+    console.error('[Gemini API Error]', errorMsg);
+    throw new Error(`Gemini API 拒绝了请求: ${errorMsg}`);
+  }
+
   const parts = aiJson.candidates?.[0]?.content?.parts || [];
+  
+  if (parts.length === 0) {
+    const finishReason = aiJson.candidates?.[0]?.finishReason || '未知';
+    console.warn('[Gemini Empty Response] Finish Reason:', finishReason);
+    throw new Error(`AI 未返回任何内容 (结束原因: ${finishReason})`);
+  }
   
   let replyText = '';
   let autoOrder: AutoOrder | null = null;
@@ -137,7 +150,7 @@ export async function chatWithAI(
   }
 
   return {
-    replyText: replyText.trim() || '系统正在处理您的请求，请稍候...',
+    replyText: replyText.trim() || '[系统警告] AI 没有生成文本回复，但也没有触发报错。',
     autoOrder
   };
 }
